@@ -82,3 +82,4 @@ This work presents an implementation of the incremental SFM algorithm using line
 
 # LICENSE
 MIT
+"# Structure-from-Motion"  
