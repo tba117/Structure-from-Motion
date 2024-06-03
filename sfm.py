@@ -5,14 +5,16 @@ from scipy.optimize import least_squares
 from tomlkit import boolean
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('Agg')  # 非対話型バックエンドを使用
 
 class Image_loader():
     def __init__(self, img_dir:str, downscale_factor:float):
-        # loading the Camera intrinsic parameters K
-        with open(img_dir + '\\K.txt') as f:
+        # カメラ内部パラメータ K
+        with open(img_dir + '/K.txt') as f:
             self.K = np.array(list((map(lambda x:list(map(lambda x:float(x), x.strip().split(' '))),f.read().split('\n')))))
             self.image_list = []
-        # Loading the set of images
+        # 画像セットの読み込み
         for image in sorted(os.listdir(img_dir)):
             if image[-4:].lower() == '.jpg' or image[-5:].lower() == '.png':
                 self.image_list.append(img_dir + '\\' + image)
@@ -21,11 +23,13 @@ class Image_loader():
         self.factor = downscale_factor
         self.downscale()
 
+    # 画質を優先するため、ダウンスケールを無効化
+
     
     def downscale(self) -> None:
-        '''
-        Downscales the Image intrinsic parameter acc to the downscale factor
-        '''
+        
+        #画像の固有パラメータをダウンスケール係数に従ってダウンスケールします。
+        
         self.K[0, 0] /= self.factor
         self.K[1, 1] /= self.factor
         self.K[0, 2] /= self.factor
@@ -35,26 +39,27 @@ class Image_loader():
         for _ in range(1,int(self.factor / 2) + 1):
             image = cv2.pyrDown(image)
         return image
+    
 
 class Sfm():
     def __init__(self, img_dir:str, downscale_factor:float = 2.0) -> None:
         '''
-            Initialise and Sfm object.
+          Sfmオブジェクトを初期化する。
         '''
         self.img_obj = Image_loader(img_dir,downscale_factor)
 
     def triangulation(self, point_2d_1, point_2d_2, projection_matrix_1, projection_matrix_2) -> tuple:
         '''
-        Triangulates 3d points from 2d vectors and projection matrices
-        returns projection matrix of first camera, projection matrix of second camera, point cloud 
+        2次元ベクトルと射影行列から3次元点を三角測量する
+        1台目のカメラの射影行列、2台目のカメラの射影行列、点群を返す 
         '''
         pt_cloud = cv2.triangulatePoints(point_2d_1, point_2d_2, projection_matrix_1.T, projection_matrix_2.T)
         return projection_matrix_1.T, projection_matrix_2.T, (pt_cloud / pt_cloud[3])    
     
     def PnP(self, obj_point, image_point , K, dist_coeff, rot_vector, initial) ->  tuple:
         '''
-        Finds an object pose from 3D-2D point correspondences using the RANSAC scheme.
-        returns rotational matrix, translational matrix, image points, object points, rotational vector
+        RANSACスキームを用いて、3D-2D点の対応関係から物体の姿勢を求める。
+        回転行列、並進行列、画像点、物体点、回転ベクトルを返す
         '''
         if initial == 1:
             obj_point = obj_point[:, 0 ,:]
@@ -72,8 +77,8 @@ class Sfm():
     
     def reprojection_error(self, obj_points, image_points, transform_matrix, K, homogenity) ->tuple:
         '''
-        Calculates the reprojection error ie the distance between the projected points and the actual points.
-        returns total error, object points
+        再投影誤差、つまり投影された点と実際の点の間の距離を計算します。
+        合計エラー、オブジェクト・ポイントを返す
         '''
         rot_matrix = transform_matrix[:3, :3]
         tran_vector = transform_matrix[:3, 3]
@@ -87,8 +92,8 @@ class Sfm():
 
     def optimal_reprojection_error(self, obj_points) -> np.array:
         '''
-        calculates of the reprojection error during bundle adjustment
-        returns error 
+        バンドル調整時の再投影誤差を計算する。
+        エラーを返す  
         '''
         transform_matrix = obj_points[0:12].reshape((3,4))
         K = obj_points[12:21].reshape((3,3))
@@ -105,8 +110,8 @@ class Sfm():
 
     def bundle_adjustment(self, _3d_point, opt, transform_matrix_new, K, r_error) -> tuple:
         '''
-        Bundle adjustment for the image and object points
-        returns object points, image points, transformation matrix
+        画像とオブジェクトポイントのバンドル調整
+        オブジェクト点、画像点、変換行列を返す
         '''
         opt_variables = np.hstack((transform_matrix_new.ravel(), K.ravel()))
         opt_variables = np.hstack((opt_variables, opt.ravel()))
@@ -119,7 +124,7 @@ class Sfm():
 
     def to_ply(self, path, point_cloud, colors) -> None:
         '''
-        Generates the .ply which can be used to open the point cloud
+        点群を開くために使用できる .ply を生成します。
         '''
         out_points = point_cloud.reshape(-1, 3) * 200
         out_colors = colors.reshape(-1, 3)
@@ -143,15 +148,15 @@ class Sfm():
             property uchar red
             end_header
             '''
-        with open(path + '\\res\\' + self.img_obj.image_list[0].split('\\')[-2] + '.ply', 'w') as f:
+        with open(path + '/res/shose.ply','w') as f:
             f.write(ply_header % dict(vert_num=len(verts)))
             np.savetxt(f, verts, '%f %f %f %d %d %d')
 
 
     def common_points(self, image_points_1, image_points_2, image_points_3) -> tuple:
         '''
-        Finds the common points between image 1 and 2 , image 2 and 3
-        returns common points of image 1-2, common points of image 2-3, mask of common points 1-2 , mask for common points 2-3 
+        画像1と画像2、画像2と画像3の共通点を見つける。
+        画像1-2の共通点、画像2-3の共通点、共通点1-2のマスク、共通点2-3のマスクを返す 
         '''
         cm_points_1 = []
         cm_points_2 = []
@@ -160,6 +165,9 @@ class Sfm():
             if a[0].size != 0:
                 cm_points_1.append(i)
                 cm_points_2.append(a[0][0])
+
+        cm_points_1 = np.array(cm_points_1).astype(int)
+        cm_points_2 = np.array(cm_points_2).astype(int)
 
         mask_array_1 = np.ma.array(image_points_2, mask=False)
         mask_array_1.mask[cm_points_2] = True
@@ -176,11 +184,11 @@ class Sfm():
 
     def find_features(self, image_0, image_1) -> tuple:
         '''
-        Feature detection using the sift algorithm and KNN
-        return keypoints(features) of image1 and image2
+        siftアルゴリズムとKNNを用いた特徴検出
+        画像1と画像2のキーポイント（特徴）を返す
         '''
 
-        sift = cv2.xfeatures2d.SIFT_create()
+        sift = cv2.SIFT_create()
         key_points_0, desc_0 = sift.detectAndCompute(cv2.cvtColor(image_0, cv2.COLOR_BGR2GRAY), None)
         key_points_1, desc_1 = sift.detectAndCompute(cv2.cvtColor(image_1, cv2.COLOR_BGR2GRAY), None)
 
@@ -190,6 +198,16 @@ class Sfm():
         for m, n in matches:
             if m.distance < 0.70 * n.distance:
                 feature.append(m)
+
+        # 特徴点を描画
+        img_0_with_keypoints = cv2.drawKeypoints(image_0, [key_points_0[m.queryIdx] for m in feature], None, flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
+        img_1_with_keypoints = cv2.drawKeypoints(image_1, [key_points_1[m.trainIdx] for m in feature], None, flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
+
+        # 特徴点を表示するウィンドウを作成
+        cv2.imshow('Image 0 Keypoints', img_0_with_keypoints)
+        cv2.imshow('Image 1 Keypoints', img_1_with_keypoints)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
 
         return np.float32([key_points_0[m.queryIdx].pt for m in feature]), np.float32([key_points_1[m.trainIdx].pt for m in feature])
 
@@ -206,6 +224,9 @@ class Sfm():
 
         image_0 = self.img_obj.downscale_image(cv2.imread(self.img_obj.image_list[0]))
         image_1 = self.img_obj.downscale_image(cv2.imread(self.img_obj.image_list[1]))
+
+        #image_0 = cv2.imread(self.img_obj.image_list[0])
+        #image_1 = cv2.imread(self.img_obj.image_list[1])
 
         feature_0, feature_1 = self.find_features(image_0, image_1)
 
@@ -233,8 +254,11 @@ class Sfm():
         pose_array = np.hstack((np.hstack((pose_array, pose_0.ravel())), pose_1.ravel()))
 
         threshold = 0.5
+        errors = []  # エラーを保存するリストを追加
+
         for i in tqdm(range(total_images)):
             image_2 = self.img_obj.downscale_image(cv2.imread(self.img_obj.image_list[i + 2]))
+            # image_2 = cv2.imread(self.img_obj.image_list[i + 2])
             features_cur, features_2 = self.find_features(image_1, image_2)
 
             if i != 0:
@@ -258,6 +282,7 @@ class Sfm():
             cm_mask_0, cm_mask_1, points_3d = self.triangulation(pose_1, pose_2, cm_mask_0, cm_mask_1)
             error, points_3d = self.reprojection_error(points_3d, cm_mask_1, transform_matrix_1, self.img_obj.K, homogenity = 1)
             print("Reprojection Error: ", error)
+            errors.append(error)  # エラーをリストに追加
             pose_array = np.hstack((pose_array, pose_2.ravel()))
             # takes a long time to run
             if enable_bundle_adjustment:
@@ -280,25 +305,26 @@ class Sfm():
             transform_matrix_0 = np.copy(transform_matrix_1)
             pose_0 = np.copy(pose_1)
             plt.scatter(i, error)
-            plt.pause(0.05)
 
             image_0 = np.copy(image_1)
             image_1 = np.copy(image_2)
             feature_0 = np.copy(features_cur)
             feature_1 = np.copy(features_2)
             pose_1 = np.copy(pose_2)
-            cv2.imshow(self.img_obj.image_list[0].split('\\')[-2], image_2)
-            if cv2.waitKey(1) & 0xff == ord('q'):
-                break
         cv2.destroyAllWindows()
 
         print("Printing to .ply file")
         print(total_points.shape, total_colors.shape)
         self.to_ply(self.img_obj.path, total_points, total_colors)
         print("Completed Exiting ...")
-        np.savetxt(self.img_obj.path + '\\res\\' + self.img_obj.image_list[0].split('\\')[-2]+'_pose_array.csv', pose_array, delimiter = '\n')
+        np.savetxt(self.img_obj.path + '/res/shose_pose_array.csv', pose_array, delimiter = '\n')
+
+        # エラーをプロットしてファイルに保存
+        plt.scatter(range(len(errors)), errors)
+        plt.savefig('reprojection_errors.png')
+        print("プロットが 'reprojection_errors.png' に保存されました。")
 
 if __name__ == '__main__':
-    sfm = Sfm("Datasets\\Herz-Jesus-P8")
+    sfm = Sfm("Datasets/shose")
     sfm()
 
