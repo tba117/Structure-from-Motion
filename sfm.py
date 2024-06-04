@@ -17,7 +17,7 @@ class Image_loader():
         # 画像セットの読み込み
         for image in sorted(os.listdir(img_dir)):
             if image[-4:].lower() == '.jpg' or image[-5:].lower() == '.png':
-                self.image_list.append(img_dir + '\\' + image)
+                self.image_list.append(img_dir + '/' + image)
         
         self.path = os.getcwd()
         self.factor = downscale_factor
@@ -148,7 +148,7 @@ class Sfm():
             property uchar red
             end_header
             '''
-        with open(path + '/res/shose.ply','w') as f:
+        with open(path + '/res/fountain-P11.ply','w') as f:
             f.write(ply_header % dict(vert_num=len(verts)))
             np.savetxt(f, verts, '%f %f %f %d %d %d')
 
@@ -200,16 +200,22 @@ class Sfm():
                 feature.append(m)
 
         # 特徴点を描画
-        img_0_with_keypoints = cv2.drawKeypoints(image_0, [key_points_0[m.queryIdx] for m in feature], None, flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
-        img_1_with_keypoints = cv2.drawKeypoints(image_1, [key_points_1[m.trainIdx] for m in feature], None, flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
+        #img_0_with_keypoints = cv2.drawKeypoints(image_0, [key_points_0[m.queryIdx] for m in feature], None, flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
+        #img_1_with_keypoints = cv2.drawKeypoints(image_1, [key_points_1[m.trainIdx] for m in feature], None, flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
 
         # 特徴点を表示するウィンドウを作成
-        cv2.imshow('Image 0 Keypoints', img_0_with_keypoints)
-        cv2.imshow('Image 1 Keypoints', img_1_with_keypoints)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+        #cv2.imshow('Image 0 Keypoints', img_0_with_keypoints)
+        #cv2.imshow('Image 1 Keypoints', img_1_with_keypoints)
+        #cv2.waitKey(0)
+        #cv2.destroyAllWindows()
 
         return np.float32([key_points_0[m.queryIdx].pt for m in feature]), np.float32([key_points_1[m.trainIdx].pt for m in feature])
+
+    def calculate_baseline(self, transform_matrix_1,transform_matrix_2):
+        position1 = transform_matrix_1[:, 3]
+        position2 = transform_matrix_2[:, 3]
+        baseline= np.linalg.norm(position2 - position1)
+        return baseline
 
     def __call__(self, enable_bundle_adjustment:boolean=False):
         cv2.namedWindow('image', cv2.WINDOW_NORMAL)
@@ -255,6 +261,7 @@ class Sfm():
 
         threshold = 0.5
         errors = []  # エラーを保存するリストを追加
+        baselines = []
 
         for i in tqdm(range(total_images)):
             image_2 = self.img_obj.downscale_image(cv2.imread(self.img_obj.image_list[i + 2]))
@@ -283,6 +290,10 @@ class Sfm():
             error, points_3d = self.reprojection_error(points_3d, cm_mask_1, transform_matrix_1, self.img_obj.K, homogenity = 1)
             print("Reprojection Error: ", error)
             errors.append(error)  # エラーをリストに追加
+
+            baseline = self.calculate_baseline(transform_matrix_0, transform_matrix_1)
+            baselines.append(baseline)
+
             pose_array = np.hstack((pose_array, pose_2.ravel()))
             # takes a long time to run
             if enable_bundle_adjustment:
@@ -317,14 +328,19 @@ class Sfm():
         print(total_points.shape, total_colors.shape)
         self.to_ply(self.img_obj.path, total_points, total_colors)
         print("Completed Exiting ...")
-        np.savetxt(self.img_obj.path + '/res/shose_pose_array.csv', pose_array, delimiter = '\n')
+        np.savetxt(self.img_obj.path + '/res/fountain-P11_pose_array.csv', pose_array, delimiter = '\n')
+
+        # ベースラインをファイルに保存
+        np.savetxt(self.img_obj.path + '/res/fountain-P11_baselines.txt', baselines, delimiter='\n')
+        print("Baselines saved to 'baselines.txt'")
 
         # エラーをプロットしてファイルに保存
         plt.scatter(range(len(errors)), errors)
         plt.savefig('reprojection_errors.png')
         print("プロットが 'reprojection_errors.png' に保存されました。")
 
+
 if __name__ == '__main__':
-    sfm = Sfm("Datasets/shose")
+    sfm = Sfm("Datasets/fountain-P11")
     sfm()
 
